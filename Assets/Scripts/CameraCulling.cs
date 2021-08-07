@@ -49,6 +49,12 @@ public class CameraCulling : MonoBehaviour
         OnPreCull();
     }
 
+    void OnDestroy() 
+    {
+        resultBuffer.Dispose();
+        planeBuffer.Dispose();
+        boundBuffer.Dispose();
+    }
 
     private void Init()
     {
