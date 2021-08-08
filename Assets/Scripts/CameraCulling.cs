@@ -46,7 +46,7 @@ public class CameraCulling : MonoBehaviour
         Cull();
 
         // 一个小优化
-        OnPreCull();
+        // OnPreCull();
     }
 
     void OnDestroy() 
