@@ -1,4 +1,3 @@
-#include "ShaderInclude_IndirectStructs.cginc"
 #include "UnityCG.cginc"
 #include "UnityDeferredLibrary.cginc"
 // Each #kernel tells which function to compile; you can have many kernels
@@ -6,19 +5,14 @@
 
 cbuffer CB
 {
-   
-    int _ShadowCascades;
-    float _ShadowDistance;
-    float _DetailCullingScreenPercentage;
     float2 _HiZTextureSize;
     float3 _CamPosition;
     
     float4x4 _UNITY_MATRIX_MVP;
     Texture2D<float4> _HiZMap;
-    SamplerState sampler_HiZMap; // "sampler" + “_HiZMap”
+    SamplerState sampler_HiZMap; 
 };
 
-StructuredBuffer<InstanceData> _InstanceDataBuffer;
 
 struct Bounds
 {
@@ -28,11 +22,10 @@ struct Bounds
 
 
 StructuredBuffer<Bounds> bounds;
-RWStructuredBuffer<SortingData> _SortingData;
 RWBuffer<int> results;
 
 // Hi-Z Culling
-inline uint IsVisibleAfterOcclusionCulling(InstanceData instance, float clipMinX, float clipMaxX, float clipMinY, float clipMaxY, float clipMinZ)
+inline uint IsVisibleAfterOcclusionCulling(Bounds bound, float clipMinX, float clipMaxX, float clipMinY, float clipMaxY, float clipMinZ)
 {
     // Change it to 0 - 1 range 
     float2 minXY = float2(clipMinX, clipMinY) * 0.5 + 0.5;
@@ -100,9 +93,6 @@ inline uint IsVisibleAfterFrustumCulling(float4 clipPos)
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
     uint tID = id.x;
-    SortingData sortingData = _SortingData[tID];
-    uint drawCall = (sortingData.drawCallInstanceIndex >> 16);
-    uint index = (sortingData.drawCallInstanceIndex) & 0xFFFF;
     // Get the instance data
     // Bounds bound = bounds[index];
     Bounds bound = bounds[tID];

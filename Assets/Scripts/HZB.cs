@@ -88,13 +88,12 @@ public class HZB : MonoBehaviour
         m_textureSize.x = size;
         m_textureSize.y = size;
         
-        Debug.Log(m_HiZDepthTexture);
         m_HiZDepthTexture = new RenderTexture(size, size, 0, RenderTextureFormat.RGHalf, RenderTextureReadWrite.Linear);
         m_HiZDepthTexture.filterMode = FilterMode.Point;
         m_HiZDepthTexture.useMipMap = true;
         m_HiZDepthTexture.autoGenerateMips = false;
         m_HiZDepthTexture.Create();
-        Debug.Log(m_HiZDepthTexture);
+
         m_HiZDepthTexture.hideFlags = HideFlags.HideAndDontSave;
     }
 

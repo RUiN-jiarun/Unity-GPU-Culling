@@ -4,12 +4,13 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-[StructLayout(LayoutKind.Sequential)]
-public struct SortingData
+public enum CullingMode
 {
-    public uint drawCallInstanceIndex; // 1
-    public float distanceToCam;         // 2
-};
+    None,
+    FrustumCullingOnly,
+    FrustumAndOcclusionCulling
+
+}
 
 [RequireComponent(typeof(Camera))]
 public class CameraCulling : MonoBehaviour
@@ -17,13 +18,21 @@ public class CameraCulling : MonoBehaviour
     private new Camera camera;
     public ComputeShader frustumCullingComputeShader;
     public ComputeShader occlusionCullingComputeShader;
-    public Renderer[] staticRenderers;
+    
     private int frustumKernel;
     private int occlusionKernel;
     private uint threadSizeX;
+    [HideInInspector]
+    public Renderer[] staticRenderers;
+    [HideInInspector]
     public Bounds[] staticRendererBounds;
-    public ComputeBuffer boundBuffer;
+
     public HZB hiZBuffer; 
+    public ComputeBuffer boundBuffer;
+    
+
+    [Header("Culling Option")]
+    public CullingMode cullingMode;
 
     // 为什么要保证resultBuffer不被序列化呢？
 
@@ -35,11 +44,7 @@ public class CameraCulling : MonoBehaviour
     public Plane[] frustumPlanes;
     public ComputeBuffer planeBuffer;
 
-    [NonSerialized]
-    public ComputeBuffer m_instancesSortingData;
 
-    private Vector3 prevPos;
-    private Quaternion prevRot;
 
     void Awake()
     {
@@ -52,13 +57,22 @@ public class CameraCulling : MonoBehaviour
 
         Init();
 
-        prevPos = camera.transform.position;
-        prevRot = camera.transform.rotation;
+    }
 
-        Cull();
-
-        // 一个小优化
-        // OnPreCull();
+    void Update()
+    {
+        if (cullingMode == CullingMode.None)
+        {
+            foreach (Renderer i in staticRenderers)
+            {
+                i.enabled = true;
+            }
+        }
+            
+        if (cullingMode == CullingMode.FrustumCullingOnly)
+            FrustumCull();
+        if (cullingMode == CullingMode.FrustumAndOcclusionCulling)
+            FullCull();
     }
 
     void OnDestroy() 
@@ -71,12 +85,7 @@ public class CameraCulling : MonoBehaviour
     private void Init()
     {
         // 使用FindKernel函数，用名字找到ComputeShader中定义的一个运算unit
-        frustumKernel = frustumCullingComputeShader.FindKernel("OverlapFrustumAndBounds");
-
-        if (frustumKernel < 0)
-        {
-            Debug.LogError("CameraCulling.Init >> frustum and bound kernel not exist..");
-        }
+        frustumKernel = frustumCullingComputeShader.FindKernel("CSMain");
 
         uint threadSizeY;
         uint threadSizeZ;
@@ -120,49 +129,45 @@ public class CameraCulling : MonoBehaviour
         occlusionCullingComputeShader.SetBuffer(occlusionKernel, "bounds", boundBuffer);
         occlusionCullingComputeShader.SetBuffer(occlusionKernel, "results", resultBuffer);
 
-        // List<SortingData> sortingData = new List<SortingData>();
-        // for (int i = 0; i < staticRenderers.Length; i++)
-        // {
-        //     sortingData.Add(new SortingData() {
-        //             drawCallInstanceIndex = (uint)0,
-        //             distanceToCam = Vector3.Distance(staticRendererBounds[i].center, m_camPosition)
-        //         });
-        // }
-
-        // m_instancesSortingData = new ComputeBuffer(staticRenderers.Length, Marshal.SizeOf(typeof(SortingData)));
-        // m_instancesSortingData.SetData(sortingData);
-        
-        // occlusionCullingComputeShader.SetBuffer(occlusionKernel, "_SortingData", m_instancesSortingData);
         resultBuffer.SetData(cullingResults);
         
 
     }
 
-    public void Cull()
-    {
-        // 计算视锥平面
-        GeometryUtility.CalculateFrustumPlanes(camera, frustumPlanes);
-        planeBuffer.SetData(frustumPlanes);
 
+    public void FrustumCull()
+    {
         uint length = (uint)staticRenderers.Length;
         uint dispatchXLength = length / threadSizeX + (uint)(((int)length % (int)threadSizeX > 0) ? 1 : 0);
 
+        GeometryUtility.CalculateFrustumPlanes(camera, frustumPlanes);
+        planeBuffer.SetData(frustumPlanes);
+
         // 启动ComputeShader的运算unit
-        // frustumCullingComputeShader.Dispatch(frustumKernel, (int)dispatchXLength, 1, 1);
-        // resultBuffer.GetData(cullingResults);
+        frustumCullingComputeShader.Dispatch(frustumKernel, (int)dispatchXLength, 1, 1);
+        resultBuffer.GetData(cullingResults);
+
+        // 根据resultBuffer的内容，确定是否渲染
+        for (int i = 0; i < staticRenderers.Length; i++)
+            staticRenderers[i].enabled = cullingResults[i] != 0;
+    }
+
+
+    public void FullCull()
+    {
+        uint length = (uint)staticRenderers.Length;
+        uint dispatchXLength = length / threadSizeX + (uint)(((int)length % (int)threadSizeX > 0) ? 1 : 0);
+
         Matrix4x4 v = camera.worldToCameraMatrix;
         Matrix4x4 p = camera.projectionMatrix;
         Matrix4x4 m_MVP = p * v;
         Vector3 m_camPosition = camera.transform.position;
 
-        occlusionCullingComputeShader.SetFloat("_ShadowDistance", QualitySettings.shadowDistance);
         occlusionCullingComputeShader.SetMatrix("_UNITY_MATRIX_MVP", m_MVP);
         occlusionCullingComputeShader.SetVector("_CamPosition", m_camPosition);
-
         occlusionCullingComputeShader.SetVector("_HiZTextureSize", hiZBuffer.TextureSize);
         occlusionCullingComputeShader.SetTexture(occlusionKernel, "_HiZMap", hiZBuffer.Texture);
         
-
         occlusionCullingComputeShader.Dispatch(occlusionKernel, (int)dispatchXLength, 1, 1);
         resultBuffer.GetData(cullingResults);
 
@@ -172,20 +177,5 @@ public class CameraCulling : MonoBehaviour
     }
 
 
-    private void OnPreCull()
-    {
-        if (prevPos != camera.transform.position || prevRot != camera.transform.rotation)
-        {
-            prevPos = camera.transform.position;
-            prevRot = camera.transform.rotation;
 
-            Cull();
-        }
-    }
-
-
-    void Update()
-    {
-
-    }
 }
